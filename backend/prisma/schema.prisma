@@ -1,0 +1,171 @@
+// Prisma Schema for OpenClaw Agent Ops Dashboard
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============ Core Tables ============
+
+model Session {
+  id              String   @id // session_id
+  trace_id        String
+  agent_id        String
+  parent_session_id String? // for subagent
+  trigger_source  String   // api|web|cron|tool
+  status          String   // success|failed|cancelled|timeout
+  start_time      DateTime
+  end_time        DateTime?
+  total_steps     Int?
+  total_tokens_in  Int?
+  total_tokens_out Int?
+  error_code      String?
+  
+  // Relations
+  steps          Step[]
+  llmCalls       LlmCall[]
+  toolCalls      ToolCall[]
+  agentCalls     AgentCall[]
+  routingEvents   RoutingEvent[]
+  skillUsages    SkillUsage[]
+  
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+  
+  @@index([agent_id])
+  @@index([trace_id])
+  @@index([status])
+  @@index([start_time])
+}
+
+model Step {
+  id            String   @id // step_id
+  session_id    String
+  trace_id      String
+  step_type     String   // llm|tool|memory_read|memory_write|routing|system
+  skill_name    String?
+  status        String   // success|error
+  start_time    DateTime
+  end_time      DateTime?
+  duration_ms   Int?
+  error_message String?
+  
+  // Relations
+  session       Session  @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  
+  @@index([session_id])
+  @@index([step_type])
+}
+
+model LlmCall {
+  id            String   @id @default(uuid())
+  step_id      String
+  session_id   String
+  agent_id     String
+  model        String
+  system_prompt String?
+  user_prompt   String?
+  full_context String?
+  raw_output   String?
+  parsed_output String?
+  tokens_in     Int
+  tokens_out    Int
+  latency_ms    Int
+  
+  // Relations
+  step         Step     @relation(fields: [step_id], references: [id], onDelete: Cascade)
+  session      Session  @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  
+  created_at   DateTime @default(now())
+  
+  @@index([session_id])
+  @@index([step_id])
+  @@index([model])
+}
+
+model ToolCall {
+  id          String   @id @default(uuid())
+  step_id    String
+  session_id String
+  tool_name  String
+  input_json String?  // JSON
+  output_json String?  // JSON
+  status     String   // success|error
+  latency_ms  Int
+  retry_count Int      @default(0)
+  
+  // Relations
+  step       Step     @relation(fields: [step_id], references: [id], onDelete: Cascade)
+  session    Session  @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  
+  created_at DateTime @default(now())
+  
+  @@index([session_id])
+  @@index([tool_name])
+}
+
+model AgentCall {
+  id                String   @id @default(uuid())
+  trace_id         String
+  parent_session_id String
+  child_session_id  String
+  caller_agent_id   String
+  callee_agent_id   String
+  reason           String?
+  status           String   // success|error
+  duration_ms      Int
+  
+  // Relations
+  parentSession    Session  @relation(fields: [parent_session_id], references: [id], onDelete: Cascade)
+  
+  created_at       DateTime @default(now())
+  
+  @@index([parent_session_id])
+  @@index([trace_id])
+}
+
+model RoutingEvent {
+  id              String   @id @default(uuid())
+  step_id        String
+  session_id     String
+  selected_rule_id String?
+  target_agent_id String?
+  rules_json     String?  // JSON array
+  
+  // Relations
+  step           Step     @relation(fields: [step_id], references: [id], onDelete: Cascade)
+  session        Session  @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  
+  created_at     DateTime @default(now())
+  
+  @@index([session_id])
+}
+
+model SkillUsage {
+  id          String   @id @default(uuid())
+  step_id    String
+  session_id String
+  agent_id   String
+  skill_name String
+  skill_type String   // retriever|tool|planner|prompt|subagent_proxy
+  status     String   // success|error
+  latency_ms  Int
+  tokens_in   Int?
+  tokens_out  Int?
+  
+  // Relations
+  step       Step     @relation(fields: [step_id], references: [id], onDelete: Cascade)
+  session    Session  @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  
+  created_at DateTime @default(now())
+  
+  @@index([session_id])
+  @@index([skill_name])
+}
